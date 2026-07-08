@@ -23,7 +23,7 @@ Copy the skill into your Claude Code skills directory:
 ```bash
 git clone git@github.com:CharlesChi715/claude-evolve-skill.git
 mkdir -p ~/.claude/skills/evolve
-cp claude-evolve-skill/SKILL.md claude-evolve-skill/evolve-workflow.js ~/.claude/skills/evolve/
+cp claude-evolve-skill/SKILL.md claude-evolve-skill/evolve-workflow.js claude-evolve-skill/critics.md ~/.claude/skills/evolve/
 ```
 
 > **⚠️ One path to fix.** `SKILL.md` tells the Workflow tool where to find the script via an absolute `scriptPath`. Edit line ~48 of your installed `~/.claude/skills/evolve/SKILL.md` so the path points at *your* home directory:
@@ -36,7 +36,7 @@ Then start a new Claude Code session and run `/evolve <your question>`.
 
 ## Configure (optional)
 
-`evolve` shares a config file with the companion `/refine` skill at `~/.claude/skills/refine/critics.md`. If present, it customizes two things:
+`evolve` reads its own config file at `~/.claude/skills/evolve/critics.md` (shipped with the skill). If present, it customizes two things:
 
 - **Reader profile** — who the answer is written for. The reader-fit critic becomes this person and critiques in first person; the revisers write for them.
 - **Models** — which model each role uses (`brain`, `pick` tournament judge, `judge` default for critics, with per-critic `understand`/`useful`/`correct` overrides). Valid values: `haiku`, `sonnet`, `opus`, `fable`, `inherit`.
@@ -58,3 +58,12 @@ The skill reports the final answer plus a short summary of how it evolved — wh
 |------|------|
 | `SKILL.md` | Skill manifest — instructions Claude follows to collect the ask, load config, and invoke the workflow. |
 | `evolve-workflow.js` | The evolution loop itself, run by the Workflow tool. |
+| `critics.md` | Critic configuration — the reader profile the answer is judged for, and per-role model choices. Edit to taste. |
+
+## Learn how it works
+
+This repo doubles as a course on the Workflow tool and agent orchestration:
+
+- [`TEACHING.md`](TEACHING.md) — the whole system in six layered levels of depth, from a one-breath mental model down to runtime guarantees and design critique.
+- [`evolve-workflow.annotated.js`](evolve-workflow.annotated.js) — the real script with teaching comments on every section (code byte-identical to `evolve-workflow.js`).
+- [`examples/`](examples/) — the `agent()` course: eight runnable workflows from one agent call to a plan→research→verify→synthesize swarm.
