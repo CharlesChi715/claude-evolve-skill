@@ -13,7 +13,7 @@ file — run it via the Workflow tool's `scriptPath`; NEVER copy or inline it.
 
 ## Step 0 — load critic configuration
 
-Read `~/.claude/skills/refine/critics.md` (shared with /refine) if it exists:
+Read `~/.claude/skills/evolve/critics.md` (next to this file) if it exists:
 
 - **"Reader profile"** section (verbatim text) → `profile`.
 - **"Models"** section → a `models` object. Roles used here:
