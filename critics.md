@@ -26,7 +26,7 @@ Roles, one per line. Valid values: haiku, sonnet, opus, fable, inherit
 (`inherit` = same model as the main session).
 
 - `brain` — generators and revisers.
-- `judge` — default cheap model for the three critics and impersonating reader.
+- `judge` — default model for the three critics.
 - `understand` / `useful` / `correct` — per-critic overrides.
 - `pick` — default cheap model for the two tournament judges.
 - `pick-reader` / `pick-correct` — per-judge overrides.

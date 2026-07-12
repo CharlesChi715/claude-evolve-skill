@@ -12,7 +12,7 @@ The loop logic lives in [`evolve-workflow.js`](evolve-workflow.js) and runs dete
 4. **Refine** — two revisers breed challengers from the champion: one **conservative** (fixes the flagged issues, changes nothing else) and one **bold** (more aggressive rework).
 5. **Select** — the same two-judge panel votes again; the champion is only replaced if both judges prefer a challenger. Otherwise it stands.
 
-The loop ends when **all critics pass** (`converged`), when improvement **dries up** (`driedOut` — the champion wins twice running), or at the round cap (default 4).
+The loop ends when **all critics pass** (`converged`), after two counted rounds without a new champion (`driedOut`), or at the round cap (default 4).
 
 The design principle: quality comes from *diversity + selection*, not from a single agent grading its own work.
 
@@ -30,7 +30,7 @@ Then start a new Claude Code session and run `/evolve <your question>`.
 
 ## Configure (optional)
 
-`evolve` reads its own config file at `~/.claude/skills/evolve/critics.md` (shipped with the skill). If present, it customizes two things:
+`evolve` reads `critics.md` beside the installed `SKILL.md` (normally `~/.claude/skills/evolve/critics.md`). If present, it customizes two things:
 
 - **Reader profile** — who the answer is written for. The reader-fit critic and the `reader` tournament judge become this person and work in first person; the revisers write for them.
 - **Models** — which model each role uses (`brain`, `pick` default for the tournament judges with per-judge `pick-reader`/`pick-correct` overrides, `judge` default for critics with per-critic `understand`/`useful`/`correct` overrides). Valid values: `haiku`, `sonnet`, `opus`, `fable`, `inherit`.
@@ -54,10 +54,87 @@ The skill reports the final answer plus a short summary of how it evolved — wh
 | `evolve-workflow.js` | The evolution loop itself, run by the Workflow tool. |
 | `critics.md` | Critic configuration — the reader profile the answer is judged for, and per-role model choices. Edit to taste. |
 
-## Learn how it works
+## Examples
 
-This repo doubles as a course on the Workflow tool and agent orchestration:
+Real `/evolve` runs showing how answers improve through critique, revision, and selection.
 
-- [`TEACHING.md`](TEACHING.md) — the whole system in six layered levels of depth, from a one-breath mental model down to runtime guarantees and design critique.
-- [`evolve-workflow.annotated.js`](evolve-workflow.annotated.js) — the real script with teaching comments on every section (code byte-identical to `evolve-workflow.js`).
-- [`examples/`](examples/) — the `agent()` course: eight runnable workflows from one agent call to a plan→research→verify→synthesize swarm.
+### What is a deterministic AI-agent workflow?
+
+**Prompt:** `What is a deterministic AI-agent workflow?`
+
+#### Without `/evolve`
+
+<details>
+<summary>Show the full original answer</summary>
+
+A deterministic AI agent workflow is an AI-powered process where the steps,
+branching, and outputs are predictable given the same inputs.
+
+In plain terms:
+
+- The workflow follows a fixed sequence or decision tree.
+- The AI may perform specific tasks, but it cannot improvise the overall process.
+- Running it again with the same input and model settings should produce the
+  same or very similar behavior.
+
+**Example**
+
+A deterministic workflow might:
+
+1. Receive a customer message.
+2. Classify it into one of five categories.
+3. Route billing questions to a billing template.
+4. Run a refund-policy check for refund questions.
+5. Return a response in a fixed format.
+
+The AI can help with classification or drafting, but the workflow logic stays
+controlled.
+
+The key idea is:
+
+- **Deterministic workflow:** controlled, repeatable, rule-based orchestration.
+- **Agentic workflow:** more flexible, adaptive, and less predictable.
+
+If you want, I can also show:
+
+- A simple diagram of a deterministic agent workflow.
+- How it differs from a normal LLM agent in code.
+
+</details>
+
+The answer is broad but long, and it implies that identical model settings
+should produce the same or very similar output. That confuses deterministic
+orchestration with nondeterministic model output.
+
+#### With `/evolve`
+
+> A deterministic AI-agent workflow is a workflow where your code controls the
+> sequence and decisions, while AI agents perform only specific, bounded tasks.
+
+For example:
+
+1. Extract information with an agent.
+2. Validate it with normal code.
+3. Save it if valid.
+4. Ask the agent to retry if invalid.
+
+```python
+result = extraction_agent.run(document)
+
+if validate(result):
+    save(result)
+else:
+    retry_agent.run(result)
+```
+
+The agent's exact wording may still vary because an LLM is usually
+nondeterministic. Here, “deterministic” describes the **control flow**, not
+every AI-generated output.
+
+- **Deterministic workflow:** code decides what happens next.
+- **Autonomous agent:** the AI decides what actions to take next.
+- **Hybrid workflow:** code controls the major stages while an agent has
+  limited freedom inside each stage.
+
+The evolved answer is more precise, more concise, and makes the key distinction
+explicit. See the [full before-and-after example](examples/Q-What-is-deterministic-ai-agent-workflow.md).

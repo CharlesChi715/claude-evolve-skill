@@ -14,7 +14,7 @@ file — run it via the Workflow tool's `scriptPath`; NEVER copy or inline it.
 
 ## Step 0 — load critic configuration
 
-Read `~/.claude/skills/evolve/critics.md` (next to this file) if it exists:
+Read `critics.md` (next to this file):
 
 - **"Reader profile"** section (verbatim text) → `profile`.
 - **"Models"** section → a `models` object. Roles used here:
@@ -71,7 +71,7 @@ args: {
   incumbent champion won (include the judges' vote maps and reasons —
   they're one-liners).
 - Ended because `converged` (critics all pass) → say so. Ended because
-  `driedOut` → check the last history entries: the champion winning twice means
-  refinement stopped improving, while "revisers failed" events mean the
-  revision agents errored out — report whichever actually happened. Hit the
-  round cap with neither → say so honestly.
+  `driedOut` → check the history: two counted rounds produced no new champion.
+  Distinguish incumbent wins from reviser failures. Hit the round cap with
+  neither flag → say so honestly; if the last round selected a revision,
+  disclose that the final champion was not re-critiqued.
