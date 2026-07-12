@@ -1,18 +1,18 @@
 # evolve
 
-A [Claude Code](https://code.claude.com) skill that produces a high-quality answer by **evolutionary refinement** — instead of trusting one agent's self-assessment, it breeds diverse candidate answers and lets a two-judge panel (one role-playing the reader, one fact-checking against official docs) vote for a champion, then improves it round by round until critics stop finding issues.
+A [Claude Code](https://code.claude.com) skill that produces a high-quality answer by **evolutionary refinement** — it verifies competing answers first, lets a model impersonate the reader to choose among the most correct candidates, then improves the winner round by round.
 
 ## How it works
 
 The loop logic lives in [`evolve-workflow.js`](evolve-workflow.js) and runs deterministically via Claude Code's Workflow tool. Each stage:
 
-1. **Generate** — two "brain" agents write candidate answers from *different stances*, so the starting pool is diverse rather than two takes on the same idea. (Skipped when you evolve an existing draft.)
-2. **Judge** — two tournament judges vote: a **reader** judge that impersonates the reader profile in first person and weighs understandability + usefulness together, and a **correct** judge that verifies claims against official documentation (web search) instead of trusting memory. Unanimity crowns the reigning **champion**; a split vote keeps the incumbent (at round 0, the reader judge breaks the tie).
-3. **Critique** — three critics review the champion in parallel through distinct lenses: reader-fit (does the target reader stumble?), usefulness (does it answer the actual ask?), and correctness.
-4. **Refine** — two revisers breed challengers from the champion: one **conservative** (fixes the flagged issues, changes nothing else) and one **bold** (more aggressive rework).
-5. **Select** — the same two-judge panel votes again; the champion is only replaced if both judges prefer a challenger. Otherwise it stands.
+1. **Generate** — two "brain" agents write candidates from different stances. (Skipped when evolving an existing draft.)
+2. **Verify** — a correctness evaluator checks load-bearing claims against authoritative sources and qualifies the answer(s) tied for the most verified substantive points.
+3. **Read and select** — a model impersonates the configured reader, writes separate understandability and usefulness notes for each qualified answer, then picks the one it would most want to receive.
+4. **Refine** — correctness problems and reader notes drive two challengers: one **conservative** and one **bold**.
+5. **Repeat** — the incumbent and challengers go through the same correctness gate and reader selection until the evaluation passes or the loop stops.
 
-The loop ends when **all critics pass** (`converged`), after two counted rounds without a new champion (`driedOut`), or at the round cap (default 4).
+The loop ends when the selected answer has no correctness issues and the reader finds it understandable and useful (`converged`), after two counted rounds without a new champion (`driedOut`), or at the round cap (default 4).
 
 The design principle: quality comes from *diversity + selection*, not from a single agent grading its own work.
 
@@ -32,8 +32,8 @@ Then start a new Claude Code session and run `/evolve <your question>`.
 
 `evolve` reads `critics.md` beside the installed `SKILL.md` (normally `~/.claude/skills/evolve/critics.md`). If present, it customizes two things:
 
-- **Reader profile** — who the answer is written for. The reader-fit critic and the `reader` tournament judge become this person and work in first person; the revisers write for them.
-- **Models** — which model each role uses (`brain`, `pick` default for the tournament judges with per-judge `pick-reader`/`pick-correct` overrides, `judge` default for critics with per-critic `understand`/`useful`/`correct` overrides). Valid values: `haiku`, `sonnet`, `opus`, `fable`, `inherit`.
+- **Reader profile** — who the answer is written for. The reader evaluator becomes this person and works in first person; generators and revisers write for them.
+- **Models** — which model each role uses: `brain` for generators/revisers, `correct` for verification, and `reader` for reader notes and selection. Valid values: `haiku`, `sonnet`, `opus`, `fable`, `inherit`.
 
 If the file doesn't exist, sensible defaults are used and every agent runs on the session model.
 
@@ -44,7 +44,7 @@ If the file doesn't exist, sensible defaults are used and every agent runs on th
 /evolve last answer          # evolve your previous answer instead of a fresh question
 ```
 
-The skill reports the final answer plus a short summary of how it evolved — which stance won round 0, how many issues each round found, and whether the conservative revision, bold revision, or incumbent champion won each time.
+The skill reports the final answer plus a short summary of the correctness gate, reader selection, remaining issues, and which revision won each round.
 
 ## Files
 
@@ -52,11 +52,11 @@ The skill reports the final answer plus a short summary of how it evolved — wh
 |------|------|
 | `SKILL.md` | Skill manifest — instructions Claude follows to collect the ask, load config, and invoke the workflow. |
 | `evolve-workflow.js` | The evolution loop itself, run by the Workflow tool. |
-| `critics.md` | Critic configuration — the reader profile the answer is judged for, and per-role model choices. Edit to taste. |
+| `critics.md` | Evaluation configuration — the reader profile and per-role model choices. Edit to taste. |
 
 ## Examples
 
-Real `/evolve` runs showing how answers improve through critique, revision, and selection.
+Real `/evolve` runs showing how answers improve through verification, reader notes, revision, and selection.
 
 ### What is a deterministic AI-agent workflow?
 

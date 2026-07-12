@@ -1,32 +1,29 @@
 ---
 name: evolve
-description: Produce a high-quality answer by evolutionary refinement — two diverse brain agents generate candidate solutions, a two-judge panel (a reader impersonating the reader profile judging understandability + usefulness, and a docs-checking correctness judge) votes a champion, then each round critics find issues, two revisers (conservative and bold) breed variants, and the panel keeps whichever beats the champion, until critics all pass or improvement dries up. Use when the user wants the best possible answer via multiple runs, or invokes /evolve.
+description: Produce a high-quality answer by evolutionary refinement — generate diverse candidates, qualify the ones with the most verified points, let a model impersonate the reader to assess understandability and usefulness and select a champion, then refine and repeat. Use when the user wants the best possible answer via multiple runs, or invokes /evolve.
 argument-hint: [question to answer, or "last answer" to evolve an existing one]
 ---
 
 # Evolve — generate-and-select refinement loop
 
-Champion-vs-challengers evolution: quality comes from breeding diverse variants
-and letting a two-judge panel select (a `reader` judge acting as the reader
-plus a docs-checking `correct` judge — both must agree to dethrone the
-champion), not from a single agent's self-assessment. All loop logic lives in `evolve-workflow.js` next to this
-file — run it via the Workflow tool's `scriptPath`; NEVER copy or inline it.
+Champion-vs-challengers evolution: a correctness verifier first qualifies the
+answer(s) with the most verified points. A reader evaluator then impersonates
+the configured reader, records understandability and usefulness notes, and
+selects the champion. All loop logic lives in `evolve-workflow.js` next to this
+file — run it via the Workflow tool's `scriptPath`; never copy or inline it.
 
-## Step 0 — load critic configuration
+## Step 0 — load evaluation configuration
 
 Read `critics.md` (next to this file):
 
 - **"Reader profile"** section (verbatim text) → `profile`.
 - **"Models"** section → a `models` object. Roles used here:
   - `brain`: generators and revisers. Keep strong.
-  - `pick`: default for the two tournament judges that vote on candidates;
-    `pick-reader`/`pick-correct` override it per-judge.
-  - `judge`: default for the three critics; `understand`/`useful`/`correct`
-    override it per-critic.
+  - `correct`: verifies and compares factual and technical points.
+  - `reader`: impersonates the reader, writes understandability/usefulness
+    notes, and selects among correctness-qualified answers.
   Valid values: `haiku`, `sonnet`, `opus`, `fable`, `inherit` (= no override).
-  Pass EVERY configured line through as a key, including `inherit` values —
-  for a per-critic key, `inherit` pins that critic to the session model,
-  whereas omitting the key would let it fall back to the `judge` default.
+  Pass every configured line through, including `inherit` values.
 
 If the file does not exist, use `profile` = "A curious practitioner who wants
 intuitive explanations before jargon and a concrete way to apply the answer.",
@@ -52,7 +49,7 @@ scriptPath: "<absolute path to this skill>/evolve-workflow.js"
 args: {
   ask: "<the question>",
   profile: "<Reader profile section text>",
-  models: { brain: "...", pick: "...", judge: "...", ... },  // from critics.md
+  models: { brain: "...", correct: "...", reader: "..." },  // from critics.md
   maxRounds: 4,
   draft: "<existing answer>"   // ONLY when evolving an existing answer
 }
@@ -64,14 +61,11 @@ args: {
   producing an answer — report the error and offer to retry; do not present an
   answer.
 - Present `final` as the answer.
-- Summarize the evolution in a few sentences using `history`: if the run
-  started from a fresh question, which stance won round 0 and why (this entry
-  is absent when a draft was passed in); then per round how many issues the
-  critics found and whether the conservative revision, bold revision, or
-  incumbent champion won (include the judges' vote maps and reasons —
-  they're one-liners).
-- Ended because `converged` (critics all pass) → say so. Ended because
+- Summarize the evolution in a few sentences using `history`: which answer
+  passed the correctness gate, why the reader selected the champion, the
+  remaining issue count, and whether each round kept the champion or selected
+  the conservative or bold revision.
+- Ended because `converged` (correctness and reader evaluation pass) → say so. Ended because
   `driedOut` → check the history: two counted rounds produced no new champion.
   Distinguish incumbent wins from reviser failures. Hit the round cap with
-  neither flag → say so honestly; if the last round selected a revision,
-  disclose that the final champion was not re-critiqued.
+  neither flag → say so honestly.

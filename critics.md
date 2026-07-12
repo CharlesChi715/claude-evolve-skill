@@ -1,15 +1,15 @@
-# Critic configuration for /evolve
+# Evaluation configuration for /evolve
 
 Edit this file freely; the skill reads it at the start of every run.
 It customizes WHO the answer is judged for and WHICH model each agent uses.
 
 ## Reader profile
 
-Who the answer is for and how they like answers. The `understand` critic
-and the `reader` tournament judge both become this reader and work in
-first person; the generators and revisers write for them.
+Who the answer is for and how they like answers. The `reader` evaluator
+becomes this reader and works in first person; generators and revisers write
+for them.
 Add lines over time as you notice what does or doesn't work for you — this is
-your critics' memory.
+your evaluator's memory.
 
 - Learning Claude Code skills and agent orchestration; comfortable programmer,
   new to multi-agent patterns.
@@ -26,12 +26,9 @@ Roles, one per line. Valid values: haiku, sonnet, opus, fable, inherit
 (`inherit` = same model as the main session).
 
 - `brain` — generators and revisers.
-- `judge` — default model for the three critics.
-- `understand` / `useful` / `correct` — per-critic overrides.
-- `pick` — default cheap model for the two tournament judges.
-- `pick-reader` / `pick-correct` — per-judge overrides.
+- `correct` — verifies claims and qualifies answers by verified points.
+- `reader` — writes understandability/usefulness notes and picks the winner.
 
 brain: inherit
-judge: haiku
 correct: inherit
-pick: haiku
+reader: haiku
