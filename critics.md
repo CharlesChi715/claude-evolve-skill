@@ -1,7 +1,8 @@
 # Evaluation configuration for /evolve
 
 Edit this file freely; the skill reads it at the start of every run.
-It customizes WHO the answer is judged for and WHICH model each agent uses.
+It customizes WHO the answer is judged for, WHICH model each role uses, and
+HOW MANY refinement loops may run.
 
 ## Reader profile
 
@@ -32,3 +33,9 @@ Roles, one per line. Valid values: haiku, sonnet, opus, fable, inherit
 brain: inherit
 correct: inherit
 reader: haiku
+
+## Loop
+
+Maximum refinement loops. Use a positive integer.
+
+max-rounds: 4

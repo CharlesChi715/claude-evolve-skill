@@ -30,10 +30,17 @@ Then start a new Claude Code session and run `/evolve <your question>`.
 
 ## Configure (optional)
 
-`evolve` reads `critics.md` beside the installed `SKILL.md` (normally `~/.claude/skills/evolve/critics.md`). If present, it customizes two things:
+`evolve` reads `critics.md` beside the installed `SKILL.md` (normally `~/.claude/skills/evolve/critics.md`). If present, it customizes three things:
 
 - **Reader profile** — who the answer is written for. The reader evaluator becomes this person and works in first person; generators and revisers write for them.
 - **Models** — which model each role uses: `brain` for generators/revisers, `correct` for verification, and `reader` for reader notes and selection. Valid values: `haiku`, `sonnet`, `opus`, `fable`, `inherit`.
+- **Maximum loops** — the refinement loop runs at most **4 times by default**.
+  Change `max-rounds` to any positive integer:
+
+```markdown
+## Loop
+max-rounds: 6
+```
 
 If the file doesn't exist, sensible defaults are used and every agent runs on the session model.
 

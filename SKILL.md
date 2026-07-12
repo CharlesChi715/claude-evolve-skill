@@ -24,6 +24,8 @@ Read `critics.md` (next to this file):
     notes, and selects among correctness-qualified answers.
   Valid values: `haiku`, `sonnet`, `opus`, `fable`, `inherit` (= no override).
   Pass every configured line through, including `inherit` values.
+- **"Loop"** section → `maxRounds`. Read `max-rounds` as a positive integer;
+  use `4` if it is missing or invalid.
 
 If the file does not exist, use `profile` = "A curious practitioner who wants
 intuitive explanations before jargon and a concrete way to apply the answer.",
@@ -50,7 +52,7 @@ args: {
   ask: "<the question>",
   profile: "<Reader profile section text>",
   models: { brain: "...", correct: "...", reader: "..." },  // from critics.md
-  maxRounds: 4,
+  maxRounds: <configured maximum, default 4>,
   draft: "<existing answer>"   // ONLY when evolving an existing answer
 }
 ```

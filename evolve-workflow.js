@@ -17,7 +17,7 @@ if (!IN.ask) {
   return { error: 'args.ask is required — refusing to run agents against an undefined question', rounds: 0, converged: false, driedOut: false, history: [] }
 }
 
-const MAX_ROUNDS = IN.maxRounds ?? 4
+const MAX_ROUNDS = Number.isInteger(IN.maxRounds) && IN.maxRounds > 0 ? IN.maxRounds : 4
 const PROFILE = IN.profile ?? 'A curious practitioner who wants intuitive explanations before jargon and a concrete way to apply the answer.'
 const ASK = IN.ask
 const MODELS = IN.models ?? {}
