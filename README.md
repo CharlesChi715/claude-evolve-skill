@@ -26,12 +26,6 @@ mkdir -p ~/.claude/skills/evolve
 cp claude-evolve-skill/SKILL.md claude-evolve-skill/evolve-workflow.js claude-evolve-skill/critics.md ~/.claude/skills/evolve/
 ```
 
-> **⚠️ One path to fix.** `SKILL.md` tells the Workflow tool where to find the script via an absolute `scriptPath`. Edit line ~48 of your installed `~/.claude/skills/evolve/SKILL.md` so the path points at *your* home directory:
->
-> ```
-> scriptPath: "/Users/<you>/.claude/skills/evolve/evolve-workflow.js"
-> ```
-
 Then start a new Claude Code session and run `/evolve <your question>`.
 
 ## Configure (optional)

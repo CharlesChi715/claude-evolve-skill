@@ -25,17 +25,11 @@ your critics' memory.
 Roles, one per line. Valid values: haiku, sonnet, opus, fable, inherit
 (`inherit` = same model as the main session).
 
-- `brain` — the agents that generate and revise answers. Keep it strong.
-- `judge` — default model for all three critics. Smaller saves tokens.
-- `understand` / `useful` / `correct` — optional per-critic overrides that
-  beat the `judge` default.
-- `pick` — default model for the two tournament judges that vote on whole
-  candidate answers: `reader` impersonates the reader profile and judges
-  understandability + usefulness together; `correct` verifies claims
-  against official docs (web search) instead of memory. Both must agree to
-  dethrone the champion; a split vote keeps the incumbent.
-- `pick-reader` / `pick-correct` — optional per-judge overrides that beat
-  the `pick` default.
+- `brain` — generators and revisers.
+- `judge` — default cheap model for the three critics and impersonating reader.
+- `understand` / `useful` / `correct` — per-critic overrides.
+- `pick` — default cheap model for the two tournament judges.
+- `pick-reader` / `pick-correct` — per-judge overrides.
 
 brain: inherit
 judge: haiku

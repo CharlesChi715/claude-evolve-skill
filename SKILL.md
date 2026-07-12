@@ -44,10 +44,11 @@ intuitive explanations before jargon and a concrete way to apply the answer.",
 
 ## Step 2 — run the Workflow
 
-Invoke the Workflow tool with:
+Resolve `evolve-workflow.js` next to this `SKILL.md` to an absolute path, then
+invoke the Workflow tool. Never hardcode a username or copy the script.
 
 ```
-scriptPath: "/Users/charles/.claude/skills/evolve/evolve-workflow.js"
+scriptPath: "<absolute path to this skill>/evolve-workflow.js"
 args: {
   ask: "<the question>",
   profile: "<Reader profile section text>",
