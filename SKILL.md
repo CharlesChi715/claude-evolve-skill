@@ -1,14 +1,15 @@
 ---
 name: evolve
-description: Produce a high-quality answer by evolutionary refinement — two diverse brain agents generate candidate solutions, a judge picks a champion, then each round critics find issues, two revisers (conservative and bold) breed variants, and the judge keeps whichever beats the champion, until critics all pass or improvement dries up. Use when the user wants the best possible answer via multiple runs, or invokes /evolve.
+description: Produce a high-quality answer by evolutionary refinement — two diverse brain agents generate candidate solutions, a two-judge panel (a reader impersonating the reader profile judging understandability + usefulness, and a docs-checking correctness judge) votes a champion, then each round critics find issues, two revisers (conservative and bold) breed variants, and the panel keeps whichever beats the champion, until critics all pass or improvement dries up. Use when the user wants the best possible answer via multiple runs, or invokes /evolve.
 argument-hint: [question to answer, or "last answer" to evolve an existing one]
 ---
 
 # Evolve — generate-and-select refinement loop
 
 Champion-vs-challengers evolution: quality comes from breeding diverse variants
-and letting a judge (acting as the reader) select, not from a single agent's
-self-assessment. All loop logic lives in `evolve-workflow.js` next to this
+and letting a two-judge panel select (a `reader` judge acting as the reader
+plus a docs-checking `correct` judge — both must agree to dethrone the
+champion), not from a single agent's self-assessment. All loop logic lives in `evolve-workflow.js` next to this
 file — run it via the Workflow tool's `scriptPath`; NEVER copy or inline it.
 
 ## Step 0 — load critic configuration
@@ -18,7 +19,8 @@ Read `~/.claude/skills/evolve/critics.md` (next to this file) if it exists:
 - **"Reader profile"** section (verbatim text) → `profile`.
 - **"Models"** section → a `models` object. Roles used here:
   - `brain`: generators and revisers. Keep strong.
-  - `pick`: the tournament judge that compares candidates.
+  - `pick`: default for the two tournament judges that vote on candidates;
+    `pick-reader`/`pick-correct` override it per-judge.
   - `judge`: default for the three critics; `understand`/`useful`/`correct`
     override it per-critic.
   Valid values: `haiku`, `sonnet`, `opus`, `fable`, `inherit` (= no override).
@@ -65,7 +67,8 @@ args: {
   started from a fresh question, which stance won round 0 and why (this entry
   is absent when a draft was passed in); then per round how many issues the
   critics found and whether the conservative revision, bold revision, or
-  incumbent champion won (include the judge's reasons — they're one-liners).
+  incumbent champion won (include the judges' vote maps and reasons —
+  they're one-liners).
 - Ended because `converged` (critics all pass) → say so. Ended because
   `driedOut` → check the last history entries: the champion winning twice means
   refinement stopped improving, while "revisers failed" events mean the

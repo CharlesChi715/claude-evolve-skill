@@ -20,10 +20,11 @@ alongside Levels 2–3.
 
 `evolve-workflow.js` is **natural selection for answers**. Instead of asking
 one AI to write an answer and trust its own judgment, it breeds *diverse*
-candidate answers, lets a judge (role-playing your target reader) crown a
-**champion**, then repeatedly: critics find flaws → two revisers breed
-challenger variants → the champion is replaced **only if a challenger beats
-it**. It stops when critics find nothing left to fix.
+candidate answers, lets a two-judge panel crown a **champion** — one judge
+role-playing your target reader, one fact-checking against official docs —
+then repeatedly: critics find flaws → two revisers breed challenger variants
+→ the champion is replaced **only if both judges prefer a challenger**. It
+stops when critics find nothing left to fix.
 
 The **Workflow tool** is the stage this runs on: a plain JavaScript script that
 acts as a *deterministic conductor* for a fleet of AI agents. The script itself
@@ -96,7 +97,8 @@ Claude model each role runs on). Trimmed, the file looks like this:
 brain: inherit     # the generate/revise agents — keep strong
 judge: haiku       # default model for the three critics — small saves tokens
 correct: inherit   # optional per-critic override; beats the judge default
-pick: inherit      # the tournament judge — comparing whole answers is hard
+pick: haiku        # default for BOTH tournament judges (reader + correct);
+                   # pick-reader / pick-correct override each individually
 ```
 
 The script never reads this file itself — it can't (Level 4 explains why);
@@ -136,8 +138,9 @@ variables (`champion`, `history`, `dry`). This is a feature, not a bug: fresh
 contexts are what make the critiques *independent* (Level 5).
 
 One more caveat: subagents do have tools (they can read files, run commands,
-search). Evolve's prompts don't ask them to — every role here works purely from
-the text in its prompt.
+search). Most of evolve's roles work purely from the text in their prompt —
+the one exception is the tournament's `correct` judge, whose brief explicitly
+tells it to search the web and fetch official documentation before voting.
 
 ---
 
@@ -148,10 +151,10 @@ The genetic-algorithm mapping, up front:
 | Genetics | evolve-workflow.js |
 |---|---|
 | Initial gene pool | Two candidates from *different stances* (direct vs thorough) |
-| Fitness function | The `pick` judge, role-playing your reader profile |
+| Fitness function | The `pick` panel — a `reader` judge role-playing your reader profile plus a docs-checking `correct` judge |
 | Small mutation | The **conservative** reviser (fix listed issues only) |
 | Large mutation / recombination | The **bold** reviser (fix issues AND restructure freely) |
-| Selection with elitism | 3-way tournament; the champion survives unless *beaten* |
+| Selection with elitism | 3-way tournament; the champion survives unless *both judges* prefer a challenger |
 | Convergence test | Three critics all vote "passes" |
 | Stagnation detection | The `dry` counter — two rounds without a new champion |
 
@@ -164,11 +167,15 @@ corner of the solution space by a *stance* line in its prompt:
 - `thorough` — "build intuition first, concrete example, cover what's needed next"
 
 Diversity is engineered *in the prompt*, not left to sampling randomness — two
-unconstrained attempts would likely be two similar takes on the same idea. A
-judge agent then compares them **as your reader** (the profile from
-`critics.md` is pasted into its prompt: "You judge as this reader: …") and
-crowns the champion. If exactly one generator fails, the survivor wins
-unopposed; if both fail, the script returns an `error` and stops.
+unconstrained attempts would likely be two similar takes on the same idea. Two
+judge agents then vote: the `reader` judge **becomes your reader** (the profile
+from `critics.md` is pasted into its prompt: "You ARE the reader described in
+this profile — judge in first person, as them") and weighs understandability +
+usefulness together, while the `correct` judge verifies claims against official
+documentation. Unanimity crowns the champion; if they split, the reader judge's
+vote breaks the tie (there's no incumbent yet, and the reader is the customer).
+If exactly one generator fails, the survivor wins unopposed; if both fail, the
+script returns an `error` and stops.
 
 When you run `/evolve last answer`, Main Claude passes the existing text as
 `args.draft`, and it becomes the champion directly — Round 0 never runs.
@@ -204,12 +211,13 @@ the champion text plus the issue list, with opposite stances:
 - **bold** — "fix the listed issues AND freely restructure, cut, or rewrite."
   (Exploration: escape local optima the conservative path can't.)
 
-**4. Tournament.** A judge sees three candidates — champion, conservative,
+**4. Tournament.** Both judges see three candidates — champion, conservative,
 bold — labeled A/B/C in an order that *rotates every round* (position-bias
-counter, subtlety 6). It's told which label is the incumbent champion and to
-prefer it "unless a revision is a real improvement — cosmetic rewording that
-adds no value must not beat the champion." Winner becomes (or remains) the
-champion.
+counter, subtlety 6). Each is told which label is the incumbent champion and
+to prefer it "unless another candidate is a real improvement on the metrics
+YOU own — cosmetic rewording that adds no value must not beat the champion."
+A challenger dethrones the champion only when **both** judges vote for it; a
+split vote keeps the incumbent.
 
 **5. Stagnation check.** If the champion survived, `dry` increments; when
 `dry` reaches 2 the loop ends with `driedOut: true` ("we're at a local
@@ -234,13 +242,13 @@ disclose that rather than present the result as verified.
 
 ```
 Round 0  generate: direct ✍   thorough ✍       (parallel)
-         pick: "B (thorough) — builds the congestion-window intuition
-               before the algorithm; direct assumes the reader knows cwnd"
+         pick: [reader→B, correct→B] "B (thorough) builds the congestion-
+               window intuition first; direct assumes the reader knows cwnd"
 Round 1  critique: understand ✗ (2 issues: 'cwnd' used before defined;
                    no example numbers)   useful ✓   correct ✓
          revise: conservative ✍  bold ✍          (parallel)
-         pick: "conservative — fixed both stumbles without losing the
-               structure; bold's rewrite dropped the loss-recovery part"
+         pick: [reader→A, correct→A] "conservative fixed both stumbles
+               without losing the structure; bold dropped loss recovery"
 Round 2  critique: all three ✓  →  converged
 ```
 
@@ -271,7 +279,9 @@ is `criticOpts(key)`: `resolve(MODELS[key] ?? MODELS.judge)`. `??` only fires
 on `undefined`/`null` — so `correct: 'inherit'` in critics.md *pins* that
 critic to the session model, while *omitting* `correct` lets it fall through
 to the cheaper `judge` default. Same-looking config, different behavior;
-SKILL.md warns about exactly this.
+SKILL.md warns about exactly this. The identical mechanism drives the two
+tournament judges: `pickOpts(key)` resolves `pick-reader` / `pick-correct`
+before falling back to the shared `pick` role.
 
 **3. Schemas as guardrails, not requests.** `opts.schema` doesn't *ask* the
 agent for JSON — the runtime forces it to answer through a validated
@@ -301,12 +311,16 @@ Also note labels are assigned **after** filtering out failed revisers
 candidates are always labeled contiguously A, B(, C) with no gap for the judge
 to trip on.
 
-**7. Incumbent bias, twice.** The judge is told to prefer the champion unless
-a revision is a *real* improvement — otherwise every round would produce a
-cosmetically-reworded "winner" and the answer would drift without improving.
-And if the judge call itself fails, the fallback is
-`championEntry ?? labeled[0]` — the *incumbent*, never an unjudged revision.
-When the referee doesn't show up, nobody wins by default.
+**7. Incumbent bias, twice.** Each judge is told to prefer the champion unless
+another candidate is a *real* improvement on the metrics it owns — otherwise
+every round would produce a cosmetically-reworded "winner" and the answer
+would drift without improving. And the vote-counting fallback chain compounds
+it: `unanimous winner ?? championEntry ?? readerEntry ?? labeled[0]` — a split
+vote or a failed judge resolves to the *incumbent*, never to a revision that
+both judges didn't endorse. (`readerEntry` — the reader judge's solo pick —
+only matters in Round 0, where no incumbent exists; the tie goes to the reader
+because the reader is who the answer is for.) When a referee doesn't show up,
+nobody wins by default.
 
 **8. What `dry` really counts.** Not just "champion won" — it also increments
 when fewer than two contenders exist (both revisers failed), because that
@@ -320,7 +334,8 @@ last replacement, and any successful replacement resets it to 0.
 **9. `null`-tolerance everywhere.** `agent()` returns `null` on failure rather
 than throwing. Every consumption site is shaped for that: Round 0 handles
 one-or-both generators dying; verdicts filter nulls; contenders filter missing
-revisions; `pick` survives a dead judge (`v?.winner`). A workflow that fans out
+revisions; `pick` survives dead judges (null ballots are filtered out before
+the tally, and `votes[i]?.winner` guards the vote map). A workflow that fans out
 dozens of calls *will* see occasional nulls — the script treats them as
 weather, not exceptions.
 
@@ -421,14 +436,15 @@ good?" says yes — the same blind spots that produced a flaw also hide it, and
 self-assessment skews agreeable. Evolve splits author / critic / judge into
 separate agents with separate context windows, so every evaluation is
 independent. (This is the moral of the SKILL.md line: "quality comes from
-breeding diverse variants and letting a judge select, not from a single
-agent's self-assessment.")
+breeding diverse variants and letting a two-judge panel select, not from a
+single agent's self-assessment.")
 
-**Comparison beats scoring.** The judge never rates an answer 7/10 — absolute
-scores from language models are noisy and drift. It only ever answers "which
-of these is better *for this reader*?", a relative judgment models are far
-more consistent at. That's why the champion mechanic exists at all: it turns
-"is it good?" into "did anything beat it?"
+**Comparison beats scoring.** The judges never rate an answer 7/10 — absolute
+scores from language models are noisy and drift. Each only ever answers "which
+of these is better *on the metrics I own*?", a relative judgment models are
+far more consistent at. That's why the champion mechanic exists at all: it
+turns "is it good?" into "did anything beat it?" — and splitting the panel
+means "beat it" requires convincing both the reader and the fact-checker.
 
 **One critic, one dimension.** A single "review this" critic implicitly
 trades dimensions off ("a bit wordy but very accurate — fine overall"). Three
@@ -443,11 +459,14 @@ answer's evolution gets.
 
 **Two-of-everything cost shape.** Why 2 stances, not 5? Why 3 critics, not 8?
 Each extra brain-class agent is a full answer-length generation. The per-round
-arithmetic: 3 calls to seed (two generators + a pick), 6 per contested round
-(three critics + two revisers + a pick), 3 for the converging round — so a run
-that converges in round 2 costs ~12 calls, and the default 4-round cap tops
-out near 27. critics.md lets you spend less (haiku critics) or more (fable
-everything) without touching code.
+arithmetic: 4 calls to seed (two generators + the two-judge pick), 7 per
+contested round (three critics + two revisers + two judges), 3 for the
+converging round — so a run that converges in round 2 costs ~14 calls, and
+the default 4-round cap tops out near 32. The doubled judge calls are why
+critics.md defaults `pick: haiku` — two cheap specialists instead of one
+expensive generalist — and the `correct` judge's doc-checking adds web
+lookups (latency more than tokens). critics.md lets you spend less or more
+without touching code.
 
 ### Honest limits
 
@@ -456,19 +475,23 @@ everything) without touching code.
   or flag brand-new taste issues forever. Convergence relies on critics
   running out of *substantive* objections; the round cap and `dry` counter
   are the backstops against oscillation, not a proof it can't happen.
-- **The judge reads all candidates in one context.** Three long answers plus
-  the profile must fit and stay distinguishable; very long answers degrade
+- **Each judge reads all candidates in one context.** Three long answers plus
+  the brief must fit and stay distinguishable; very long answers degrade
   judgment quality before they hit hard limits.
-- **`correct` is a reading check, not a test run.** The critic judges code and
-  claims by inspection. Subagents *have* tools, so you could prompt it to
-  execute code it doubts — the current brief doesn't.
-- **Incumbent bias can reject real improvements.** "Prefer the champion" is
-  deliberately conservative; occasionally a genuinely better bold rewrite will
+- **The `correct` critic is a reading check, not a test run.** The tournament's
+  `correct` judge doc-checks against official documentation, but the `correct`
+  *critic* still judges code and claims by inspection — and neither actually
+  executes code it doubts. And the doc-checking judge is only as good as its
+  (cheap, by default) model's searching.
+- **Incumbent bias can reject real improvements.** "Prefer the champion" plus
+  the unanimity rule is deliberately conservative — a challenger that only
+  one judge loves loses; occasionally a genuinely better bold rewrite will
   lose for looking like taste. The bet: bias toward stability beats bias
   toward churn.
-- **A dead judge freezes evolution.** Judge failure falls back to the
-  incumbent (safe), but if it kept failing you'd ride `dry` to a quiet
-  `driedOut` exit rather than an error. The `history` log is where you'd see
+- **Dead judges freeze evolution.** One failed judge makes unanimity
+  impossible, so the round quietly defaults to the incumbent; if judges kept
+  failing you'd ride `dry` to a quiet `driedOut` exit rather than an error.
+  The `[reader→…, correct→…]` vote maps in `history` are where you'd see
   that pattern.
 
 ### Exercises, in rising order of ambition
@@ -494,8 +517,10 @@ everything) without touching code.
    You'll touch `LENSES` and critics.md's Models section — and notice
    subtleties 4 and 5 quietly keep working because they're written against
    `LENSES.length`, not the number 3.
-5. **Make `correct` empirical.** Change its brief to instruct: extract every
-   runnable command/claim and verify with your tools before voting.
+5. **Make the `correct` critic empirical.** The tournament's `correct` judge
+   already verifies against official docs; change the `correct` *critic's*
+   brief (in `LENSES`) the same way — or go further and instruct it to
+   execute runnable commands before passing judgment.
 6. **Write your own workflow from scratch.** Below.
 
 ### Try it now — a minimal workflow of your own

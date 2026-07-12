@@ -5,10 +5,13 @@
 // makes them compete and improve it, like an evolution loop:
 //
 //   1. GENERATE: two agents each write an answer in a different style
-//   2. JUDGE:    another agent picks the better one — the "champion"
+//   2. JUDGE:    two judges vote on the better one — the "champion":
+//                a "reader" judge role-playing the target reader, and a
+//                "correct" judge that checks claims against official docs
 //   3. CRITIQUE: three critic agents look for problems in the champion
 //   4. REFINE:   two agents rewrite the champion to fix those problems
-//   5. JUDGE:    the champion vs the two rewrites — best one wins
+//   5. JUDGE:    the same two judges vote on champion vs the two rewrites —
+//                the champion is only replaced when BOTH agree
 //   6. Repeat steps 3–5 until the critics are happy, or we run out of rounds
 //
 // IMPORTANT: some things in this file are NOT normal JavaScript — they are
@@ -32,7 +35,7 @@ export const meta = {
     { title: 'Generate', detail: 'two brains, different stances' },
     { title: 'Critique', detail: 'reader-fit, usefulness, correctness in parallel' },
     { title: 'Refine', detail: 'conservative + bold revisions of the champion' },
-    { title: 'Judge', detail: 'champion must be beaten to be replaced' },
+    { title: 'Judge', detail: 'reader judge + docs-checking correctness judge; both must agree to dethrone' },
   ],
 }
 
@@ -75,7 +78,10 @@ const resolve = (name) => (name && name !== 'inherit') ? { model: name } : {}
 
 // Call resolve() to build the options for each kind of agent.
 const brainOpts = resolve(MODELS.brain)
-const pickOpts = resolve(MODELS.pick)
+// Each tournament judge can have its own model via 'pick-reader' /
+// 'pick-correct' in critics.md; otherwise both fall back to the shared
+// 'pick' role.
+const pickOpts = (key) => resolve(MODELS['pick-' + key] ?? MODELS.pick)
 // This arrow function takes a key (like 'correct') and looks it up in MODELS.
 // MODELS[key] uses BRACKET NOTATION: get a property whose name is stored in
 // a variable (MODELS.correct would only ever mean the literal name "correct").
@@ -170,26 +176,67 @@ const STANCES = [
   { key: 'thorough', text: 'Thorough and didactic: build intuition first, use a concrete example, cover what the reader will need right after.' },
 ]
 
-// Builds the opening text of every judging prompt.
-// If championLabel is given (e.g. 'B'), the judge is told which candidate is
-// the reigning champion and to only dethrone it for a REAL improvement.
+// The tournament judges. A PANEL of two, splitting the work by who is
+// qualified to judge it:
+//   'reader'  → IS the reader (first person) and votes on TWO metrics at
+//               once: UNDERSTAND (could they follow it?) and USEFUL (does
+//               it serve their ask?). Subjective calls belong to the person
+//               the answer is for.
+//   'correct' → votes for the most factually correct candidate, and must
+//               CHECK OFFICIAL DOCS (web search / fetching documentation)
+//               rather than trusting memory. This one deliberately does NOT
+//               impersonate the reader: correctness is objective, and
+//               role-playing a non-expert would only handicap fact-checking.
+// Each judge fills in pickSchema ({ winner, reason }); the champion is only
+// dethroned when BOTH agree. A split vote keeps the incumbent (and in round
+// 0, where there is no incumbent yet, the reader judge breaks the tie).
+const JUDGE_LENSES = [
+  {
+    key: 'reader',
+    brief: () =>
+      `You ARE the reader described in this profile — judge in first person, as them:\n` +
+      `${PROFILE}\n\n` +
+      `You asked:\n"${ASK}"\n\n` +
+      `Vote for the candidate that wins on BOTH of these metrics together:\n` +
+      `1. UNDERSTAND — the one YOU could follow most comfortably in one top-to-bottom read: ` +
+      `intuition before mechanism, jargon explained at first use, nothing assuming knowledge ` +
+      `you lack, your structural and presentation preferences honored.\n` +
+      `2. USEFUL — the one that best SERVES your ask: every explicit part addressed, ` +
+      `implicit needs met, actionable enough that you can DO the thing without an immediate ` +
+      `follow-up question.\n` +
+      `If the metrics disagree, pick the candidate you would rather have received overall. ` +
+      `Ignore factual accuracy — the other judge verifies that against official docs.`,
+  },
+  {
+    key: 'correct',
+    brief: () =>
+      `The candidates below all answer this ask:\n"${ASK}"\n\n` +
+      `Vote for the most factually and technically CORRECT candidate: claims, code, ` +
+      `commands, names of tools and APIs. Do NOT judge from memory alone — verify the ` +
+      `load-bearing checkable claims against OFFICIAL documentation (search the web and ` +
+      `fetch the official docs for the tools/APIs referenced; a claim the docs contradict ` +
+      `is wrong no matter how confident it sounds). A convincing candidate that is wrong ` +
+      `must lose. Ignore style and coverage — the other judge owns those.`,
+  },
+]
+
+// The shared tail of every judging prompt: the position-bias guard, plus —
+// when a championLabel is given (e.g. 'B') — the incumbent-bias rule that a
+// revision must be a REAL improvement to dethrone the champion.
 // (championLabel ? textA : textB) — the ternary again, choosing between
 // two chunks of text.
-const judgePreamble = (championLabel) =>
-  `You judge as this reader:\n${PROFILE}\n\nThey asked:\n"${ASK}"\n\n` +
-  `Pick the candidate that serves this reader best overall: easiest for them to understand, ` +
-  `best coverage of the ask, and correct. Judge content only — ignore the order candidates ` +
-  `appear in.\n` +
+const judgeTail = (championLabel) =>
+  `\n\nJudge content only — ignore the order candidates appear in.\n` +
   (championLabel
     ? `Candidate ${championLabel} is the current champion (the unchanged incumbent). Prefer it ` +
-      `unless a revision is a real improvement — cosmetic rewording that adds no value must ` +
-      `not beat the champion.\n\n`
+      `unless another candidate is a real improvement on the metrics YOU own — cosmetic ` +
+      `rewording that adds no value must not beat the champion.\n\n`
     : `\n`)
 
 // pick() runs one judging round and returns { name, reason }.
 //
-// "async" marks a function that does slow work (here: waiting for an AI
-// agent to reply). Inside it you can use "await", which means "pause here
+// "async" marks a function that does slow work (here: waiting for AI
+// agents to reply). Inside it you can use "await", which means "pause here
 // until this finishes, then continue with the result".
 //
 // "labeled" is an array of small arrays, one per candidate:
@@ -202,35 +249,54 @@ const pick = async (labeled, tag) => {
   // the whole entry, we unpack it. The empty slot before the comma means
   // "skip position 0 (the label), call position 1 'name'".
   const championEntry = labeled.find(([, name]) => name === 'champion')
+  const labels = labeled.map(([label]) => label)
+  // .map() transforms EVERY element of an array using a function, giving a
+  // new array. Here each candidate becomes a block of labeled text.
+  // .join('\n\n') then glues all the blocks into one big string,
+  // separated by blank lines.
+  const blocks = labeled.map(([label, , text]) => `---CANDIDATE ${label}---\n${text}\n---END ${label}---`).join('\n\n')
 
-  // Ask the judge agent to pick a winner. "v" will be an object shaped like
-  // pickSchema: { winner: 'A', reason: '...' }.
-  const v = await agent(
-    // "championEntry?.[0]" uses OPTIONAL CHAINING (?.): if championEntry is
-    // undefined (no champion in this round), the whole thing is undefined
-    // instead of crashing with an error.
-    judgePreamble(championEntry?.[0]) +
-    // .map() transforms EVERY element of an array using a function, giving a
-    // new array. Here each candidate becomes a block of labeled text.
-    // .join('\n\n') then glues all the blocks into one big string,
-    // separated by blank lines.
-    labeled.map(([label, , text]) => `---CANDIDATE ${label}---\n${text}\n---END ${label}---`).join('\n\n'),
-    // The second argument to agent() is an options object.
-    // "...pickOpts" is the SPREAD operator: it copies all key/value pairs
-    // from pickOpts into this object (so a model override, if any, applies).
-    { label: `pick:${tag}`, phase: 'Judge', schema: pickSchema(labeled.map(([label]) => label)), ...pickOpts }
-  )
-
-  // on judge failure fall back to the incumbent, never to an unjudged revision
+  // Both judges vote at the same time. Each entry of "votes" is an object
+  // shaped like pickSchema — { winner: 'A', reason: '...' } — or null if
+  // that judge failed. The order matches JUDGE_LENSES:
+  // votes[0] = reader, votes[1] = correct.
   //
-  // "v?.winner" — again optional chaining: if the judge failed (v is null),
-  // this is undefined instead of an error.
-  // "a ?? b ?? c" tries each option left to right and takes the first one
-  // that isn't null/undefined. So: the judged winner, else the champion,
-  // else just the first candidate.
-  const hit = labeled.find(([label]) => label === v?.winner) ?? championEntry ?? labeled[0]
-  // hit[1] is the candidate's name (position 1 of the entry).
-  return { name: hit[1], reason: v?.reason ?? `judge unavailable — defaulted to ${hit[1]}` }
+  // "championEntry?.[0]" uses OPTIONAL CHAINING (?.): if championEntry is
+  // undefined (no champion in this round), the whole thing is undefined
+  // instead of crashing with an error.
+  const votes = await parallel(JUDGE_LENSES.map(j => () =>
+    agent(
+      j.brief() + judgeTail(championEntry?.[0]) + blocks,
+      // "...pickOpts(j.key)" is the SPREAD operator: it copies this judge's
+      // model override (if any) into the options object.
+      { label: `pick:${j.key}:${tag}`, phase: 'Judge', schema: pickSchema(labels), ...pickOpts(j.key) }
+    )
+  ))
+
+  // Tally the votes: candidate label → how many judges voted for it.
+  // .filter(Boolean) drops failed judges (null entries) first.
+  const tally = {}
+  votes.filter(Boolean).forEach(v => { tally[v.winner] = (tally[v.winner] ?? 0) + 1 })
+
+  // UNANIMITY rule: with two judges, a candidate wins only when BOTH voted
+  // for it (2 votes). A split vote — or a failed judge — falls back to the
+  // incumbent champion, never to an unjudged revision. When no champion
+  // exists yet (round 0), the reader judge's vote breaks the tie: the
+  // reader is the person the answer is for.
+  const unanimousLabel = labels.find(l => (tally[l] ?? 0) >= 2)
+  const readerEntry = labeled.find(([label]) => label === votes[0]?.winner)
+  const hit = labeled.find(([label]) => label === unanimousLabel) ?? championEntry ?? readerEntry ?? labeled[0]
+
+  // Human-readable record: how each judge voted, plus one winning-side
+  // reason when the panel agreed.
+  const voteMap = JUDGE_LENSES.map((j, i) => `${j.key}→${votes[i]?.winner ?? 'n/a'}`).join(', ')
+  const backing = votes.find(v => v && v.winner === hit[0])
+  return {
+    name: hit[1],
+    reason: `[${voteMap}] ` + (unanimousLabel
+      ? (backing?.reason ?? 'unanimous vote')
+      : `judges split — defaulted to ${hit[1]}`),
+  }
 }
 
 // "let" declares a variable that CAN be re-assigned later (unlike const).
@@ -239,7 +305,7 @@ const pick = async (labeled, tag) => {
 const history = []
 let champion = IN.draft ?? null
 
-// Round 0 — generate two diverse solutions, judge picks the starting champion
+// Round 0 — generate two diverse solutions, the judges vote on the starting champion
 // (skipped entirely if the user already gave us a draft to improve)
 if (!champion) {
   // parallel() takes an array of FUNCTIONS and runs them at the same time.

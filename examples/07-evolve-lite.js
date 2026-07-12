@@ -4,7 +4,10 @@
 //  Teaches: the champion pattern — generate DIVERSE candidates, judge
 //           COMPARATIVELY (never "rate this 1–10"), replace the champion
 //           only when beaten. This is evolve-workflow.js with the loop and
-//           armor stripped away so the skeleton shows.
+//           armor stripped away so the skeleton shows. (The full evolve has
+//           since split this single judge into a two-judge panel — a reader-
+//           impersonating judge plus a docs-checking correctness judge — but
+//           the champion pattern itself is unchanged.)
 //  Agents spawned: 7  (3 generators, 1 judge, 1 critic, 1 reviser, 1 final judge)
 //  Run: "Run the workflow at examples/07-evolve-lite.js"
 //       (optionally: ... with args {ask: "your question"})

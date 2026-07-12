@@ -23,9 +23,11 @@
 //  JavaScript run by the Claude Code harness (not by the model). Every
 //  `agent(prompt, opts)` call spawns a one-shot AI subagent with a fresh,
 //  empty context that answers one prompt and disappears. The algorithm is
-//  natural selection for answers: seed two diverse candidates, let a judge
-//  crown a champion, then each round critics find flaws, two revisers breed
-//  challenger variants, and the champion is replaced only if beaten.
+//  natural selection for answers: seed two diverse candidates, let a two-
+//  judge panel (a judge role-playing the reader plus a docs-checking
+//  correctness judge) crown a champion, then each round critics find flaws,
+//  two revisers breed challenger variants, and the champion is replaced only
+//  if BOTH judges prefer a challenger.
 //  Judgment lives in the agents; control flow lives in this code.
 //
 // ═══════════════════════════════════════════════════════════════════════════
@@ -59,7 +61,7 @@ export const meta = {
     { title: 'Generate', detail: 'two brains, different stances' },
     { title: 'Critique', detail: 'reader-fit, usefulness, correctness in parallel' },
     { title: 'Refine', detail: 'conservative + bold revisions of the champion' },
-    { title: 'Judge', detail: 'champion must be beaten to be replaced' },
+    { title: 'Judge', detail: 'reader judge + docs-checking correctness judge; both must agree to dethrone' },
   ],
 }
 
@@ -103,11 +105,15 @@ const ASK = IN.ask
 const MODELS = IN.models ?? {}
 
 //  WHAT: model plumbing (subtlety 2). critics.md's Models section arrives as
-//  e.g. {brain: 'inherit', judge: 'haiku', correct: 'inherit', pick: 'inherit'}.
+//  e.g. {brain: 'inherit', judge: 'haiku', correct: 'inherit', pick: 'haiku'}.
 //  resolve() turns a role's value into agent-options: a real name becomes
 //  {model: 'haiku'}, while 'inherit' or missing becomes {} — and spreading {}
 //  into agent opts (`...brainOpts`) adds nothing, so the agent runs on the
 //  session model.
+//
+//  pickOpts is a FUNCTION (like criticOpts) because there are now two
+//  tournament judges: 'pick-reader' / 'pick-correct' lines in critics.md
+//  override each judge individually, falling back to the shared 'pick' role.
 //
 //  GOTCHA: in criticOpts, `MODELS[key] ?? MODELS.judge` means a per-critic
 //  entry beats the `judge` default — but `??` only fires on undefined/null,
@@ -115,12 +121,13 @@ const MODELS = IN.models ?? {}
 //  the session model, whereas OMITTING `correct` lets it fall through to the
 //  (usually cheaper) judge default. Two configs that look synonymous, aren't.
 //  This is why SKILL.md insists every configured line be passed through,
-//  including 'inherit' values.
+//  including 'inherit' values. The same trap applies to `pick-reader` /
+//  `pick-correct` versus the `pick` default.
 
 // 'inherit' or missing -> no override, agent runs on the session model
 const resolve = (name) => (name && name !== 'inherit') ? { model: name } : {}
 const brainOpts = resolve(MODELS.brain)
-const pickOpts = resolve(MODELS.pick)
+const pickOpts = (key) => resolve(MODELS['pick-' + key] ?? MODELS.pick)
 const criticOpts = (key) => resolve(MODELS[key] ?? MODELS.judge)
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -261,20 +268,70 @@ const STANCES = [
 ]
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  §5  THE JUDGE — comparative selection with an incumbent   (subtleties 6–7)
+//  §5  THE JUDGES — a two-judge panel with an incumbent      (subtleties 6–7)
 // ═══════════════════════════════════════════════════════════════════════════
 //
-//  WHAT: judgePreamble frames every pick: the judge role-plays the reader
-//  profile and chooses which candidate serves that reader best.
+//  WHAT: the tournament is decided by TWO judges, splitting the work by who
+//  is qualified to judge it:
+//  - 'reader'  IS the reader (the critics.md profile, first person) and
+//    weighs the two subjective metrics together: UNDERSTAND (could they
+//    follow it?) and USEFUL (does it serve their ask?). Subjective calls
+//    belong to the person the answer is for.
+//  - 'correct' votes for the most factually correct candidate and must
+//    CHECK OFFICIAL DOCS rather than trust memory — workflow subagents have
+//    tool access (web search / fetch), so "verify against the official
+//    documentation" is a real instruction, not decoration. It deliberately
+//    does NOT impersonate the reader: correctness is objective, and role-
+//    playing a non-expert would only handicap fact-checking.
 //
-//  WHY comparison, not scoring: the judge is never asked "rate this 1–10" —
+//  WHY comparison, not scoring: a judge is never asked "rate this 1–10" —
 //  absolute scores from language models are noisy and drift between calls.
-//  "Which of these is better for this reader?" is a relative judgment models
-//  are far more consistent at. The whole champion mechanic exists to convert
-//  "is it good?" into "did anything beat it?".
+//  "Which of these is better?" is a relative judgment models are far more
+//  consistent at. The whole champion mechanic exists to convert "is it
+//  good?" into "did anything beat it?".
 //
-//  WHY the incumbent clause (subtlety 7): without "prefer it unless a
-//  revision is a real improvement", every round would crown a cosmetically
+//  WHY a panel instead of one "best overall" judge: a single judge trades
+//  the dimensions off silently in its head — charm can buy forgiveness for
+//  a wrong command. Splitting reader-experience from doc-checked correctness
+//  means a candidate must win BOTH courts, and the vote map in the history
+//  shows exactly which court dethroned or saved a champion.
+
+const JUDGE_LENSES = [
+  {
+    key: 'reader',
+    brief: () =>
+      `You ARE the reader described in this profile — judge in first person, as them:\n` +
+      `${PROFILE}\n\n` +
+      `You asked:\n"${ASK}"\n\n` +
+      `Vote for the candidate that wins on BOTH of these metrics together:\n` +
+      `1. UNDERSTAND — the one YOU could follow most comfortably in one top-to-bottom read: ` +
+      `intuition before mechanism, jargon explained at first use, nothing assuming knowledge ` +
+      `you lack, your structural and presentation preferences honored.\n` +
+      `2. USEFUL — the one that best SERVES your ask: every explicit part addressed, ` +
+      `implicit needs met, actionable enough that you can DO the thing without an immediate ` +
+      `follow-up question.\n` +
+      `If the metrics disagree, pick the candidate you would rather have received overall. ` +
+      `Ignore factual accuracy — the other judge verifies that against official docs.`,
+  },
+  {
+    key: 'correct',
+    brief: () =>
+      `The candidates below all answer this ask:\n"${ASK}"\n\n` +
+      `Vote for the most factually and technically CORRECT candidate: claims, code, ` +
+      `commands, names of tools and APIs. Do NOT judge from memory alone — verify the ` +
+      `load-bearing checkable claims against OFFICIAL documentation (search the web and ` +
+      `fetch the official docs for the tools/APIs referenced; a claim the docs contradict ` +
+      `is wrong no matter how confident it sounds). A convincing candidate that is wrong ` +
+      `must lose. Ignore style and coverage — the other judge owns those.`,
+  },
+]
+
+//  WHAT: judgeTail is the shared closing of both judging prompts: the
+//  position-bias line, plus — when there is an incumbent — the champion
+//  clause.
+//
+//  WHY the incumbent clause (subtlety 7): without "prefer it unless another
+//  candidate is a real improvement", every round would crown a cosmetically
 //  reworded 'winner' and the answer would DRIFT without improving. The bias
 //  is deliberately toward stability over churn. Honest caveat: it will
 //  occasionally reject a genuinely-better bold rewrite that reads as taste —
@@ -283,48 +340,66 @@ const STANCES = [
 //  Note "Judge content only — ignore the order candidates appear in": half of
 //  the position-bias defense; the other half is the PERMS rotation in §7.
 
-const judgePreamble = (championLabel) =>
-  `You judge as this reader:\n${PROFILE}\n\nThey asked:\n"${ASK}"\n\n` +
-  `Pick the candidate that serves this reader best overall: easiest for them to understand, ` +
-  `best coverage of the ask, and correct. Judge content only — ignore the order candidates ` +
-  `appear in.\n` +
+const judgeTail = (championLabel) =>
+  `\n\nJudge content only — ignore the order candidates appear in.\n` +
   (championLabel
     ? `Candidate ${championLabel} is the current champion (the unchanged incumbent). Prefer it ` +
-      `unless a revision is a real improvement — cosmetic rewording that adds no value must ` +
-      `not beat the champion.\n\n`
+      `unless another candidate is a real improvement on the metrics YOU own — cosmetic ` +
+      `rewording that adds no value must not beat the champion.\n\n`
     : `\n`)
 
 //  WHAT: pick() runs one tournament. `labeled` is an array of triples
 //  [label, name, text] — e.g. ['A', 'conservative', '<full answer text>'] —
-//  so the judge sees neutral labels (A/B/C) while the script keeps the
+//  so the judges see neutral labels (A/B/C) while the script keeps the
 //  meaningful names. It returns {name, reason}, never the raw text.
 //
-//  HOW, line by line:
+//  HOW, step by step:
 //  - championEntry: find the incumbent among the candidates (if any — Round 0
-//    has none, so judgePreamble gets undefined and omits the incumbent
-//    clause). `([, name]) =>` destructures a triple, skipping the label.
-//  - the prompt: preamble + each candidate fenced between ---CANDIDATE X---
-//    markers so long answers can't bleed into each other.
-//  - schema: pickSchema(labels) — the enum-of-actual-labels guardrail from §3.
-//  - `...pickOpts`: the tournament judge's model override from critics.md
-//    ('pick' role — comparing whole answers is hard; keep it strong).
+//    has none, so judgeTail gets undefined and omits the incumbent clause).
+//    `([, name]) =>` destructures a triple, skipping the label.
+//  - blocks: each candidate fenced between ---CANDIDATE X--- markers so long
+//    answers can't bleed into each other.
+//  - votes: BOTH judges vote concurrently (a barrier — a tally needs all
+//    ballots). Each vote is pickSchema-shaped ({winner, reason}) or null if
+//    that judge failed; the order matches JUDGE_LENSES (reader, correct).
+//  - `...pickOpts(j.key)`: per-judge model from critics.md ('pick-reader' /
+//    'pick-correct', falling back to 'pick' — haiku by default, since two
+//    cheap specialists replace one expensive generalist).
 //
-//  GOTCHA (subtlety 7, second half): the fallback line. agent() returns null
-//  if the judge call fails, and v?.winner may match nothing. The fallback is
-//  championEntry ?? labeled[0] — the INCUMBENT, never an unjudged revision.
-//  When the referee doesn't show up, nobody wins by default. (labeled[0] only
-//  matters in Round 0, where there is no incumbent yet.)
+//  WHAT the UNANIMITY rule means: with two judges, "majority" degenerates to
+//  "both agree" — a candidate needs 2 votes to win outright. A split vote is
+//  a hung jury, and a hung jury favors the status quo.
+//
+//  GOTCHA (subtlety 7, second half): the fallback chain on `hit`. It reads
+//  in order: unanimous winner → incumbent champion → the reader judge's
+//  solo pick → first candidate. The incumbent outranks any single judge's
+//  vote (never promote an unjudged-by-both revision), and readerEntry only
+//  matters in Round 0, where there is no incumbent — the tie goes to the
+//  reader because the reader is the person the answer is for.
 
 const pick = async (labeled, tag) => {
   const championEntry = labeled.find(([, name]) => name === 'champion')
-  const v = await agent(
-    judgePreamble(championEntry?.[0]) +
-    labeled.map(([label, , text]) => `---CANDIDATE ${label}---\n${text}\n---END ${label}---`).join('\n\n'),
-    { label: `pick:${tag}`, phase: 'Judge', schema: pickSchema(labeled.map(([label]) => label)), ...pickOpts }
-  )
-  // on judge failure fall back to the incumbent, never to an unjudged revision
-  const hit = labeled.find(([label]) => label === v?.winner) ?? championEntry ?? labeled[0]
-  return { name: hit[1], reason: v?.reason ?? `judge unavailable — defaulted to ${hit[1]}` }
+  const labels = labeled.map(([label]) => label)
+  const blocks = labeled.map(([label, , text]) => `---CANDIDATE ${label}---\n${text}\n---END ${label}---`).join('\n\n')
+  const votes = await parallel(JUDGE_LENSES.map(j => () =>
+    agent(
+      j.brief() + judgeTail(championEntry?.[0]) + blocks,
+      { label: `pick:${j.key}:${tag}`, phase: 'Judge', schema: pickSchema(labels), ...pickOpts(j.key) }
+    )
+  ))
+  const tally = {}
+  votes.filter(Boolean).forEach(v => { tally[v.winner] = (tally[v.winner] ?? 0) + 1 })
+  const unanimousLabel = labels.find(l => (tally[l] ?? 0) >= 2)
+  const readerEntry = labeled.find(([label]) => label === votes[0]?.winner)
+  const hit = labeled.find(([label]) => label === unanimousLabel) ?? championEntry ?? readerEntry ?? labeled[0]
+  const voteMap = JUDGE_LENSES.map((j, i) => `${j.key}→${votes[i]?.winner ?? 'n/a'}`).join(', ')
+  const backing = votes.find(v => v && v.winner === hit[0])
+  return {
+    name: hit[1],
+    reason: `[${voteMap}] ` + (unanimousLabel
+      ? (backing?.reason ?? 'unanimous vote')
+      : `judges split — defaulted to ${hit[1]}`),
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -343,7 +418,7 @@ const pick = async (labeled, tag) => {
 const history = []
 let champion = IN.draft ?? null
 
-// Round 0 — generate two diverse solutions, judge picks the starting champion
+// Round 0 — generate two diverse solutions, the judges vote on the starting champion
 if (!champion) {
 
   //  WHAT: spawn both generators CONCURRENTLY. parallel() takes THUNKS —

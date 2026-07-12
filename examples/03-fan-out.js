@@ -50,7 +50,7 @@ log(`Fanning out ${PERSPECTIVES.length} perspectives on: ${topic}`)
 //  on a small, fast, cheap model. Bulk work (one short opinion each) goes to
 //  haiku; the ONE call whose quality gates the whole result — the synthesis —
 //  omits `model` and inherits the session's (strong) model. This is the same
-//  dial critics.md exposes for evolve: cheap critics, strong brain/judge.
+//  dial critics.md exposes for evolve: cheap critics and judges, strong brain.
 const takes = await parallel(PERSPECTIVES.map(who => () =>
   agent(
     `You are ${who}. In 3–5 sentences, give YOUR honest take on: "${topic}". ` +

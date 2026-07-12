@@ -1,16 +1,16 @@
 # evolve
 
-A [Claude Code](https://code.claude.com) skill that produces a high-quality answer by **evolutionary refinement** — instead of trusting one agent's self-assessment, it breeds diverse candidate answers and lets a judge (role-playing the reader) select a champion, then improves it round by round until critics stop finding issues.
+A [Claude Code](https://code.claude.com) skill that produces a high-quality answer by **evolutionary refinement** — instead of trusting one agent's self-assessment, it breeds diverse candidate answers and lets a two-judge panel (one role-playing the reader, one fact-checking against official docs) vote for a champion, then improves it round by round until critics stop finding issues.
 
 ## How it works
 
 The loop logic lives in [`evolve-workflow.js`](evolve-workflow.js) and runs deterministically via Claude Code's Workflow tool. Each stage:
 
 1. **Generate** — two "brain" agents write candidate answers from *different stances*, so the starting pool is diverse rather than two takes on the same idea. (Skipped when you evolve an existing draft.)
-2. **Judge** — a tournament judge picks the strongest candidate as the reigning **champion**.
+2. **Judge** — two tournament judges vote: a **reader** judge that impersonates the reader profile in first person and weighs understandability + usefulness together, and a **correct** judge that verifies claims against official documentation (web search) instead of trusting memory. Unanimity crowns the reigning **champion**; a split vote keeps the incumbent (at round 0, the reader judge breaks the tie).
 3. **Critique** — three critics review the champion in parallel through distinct lenses: reader-fit (does the target reader stumble?), usefulness (does it answer the actual ask?), and correctness.
 4. **Refine** — two revisers breed challengers from the champion: one **conservative** (fixes the flagged issues, changes nothing else) and one **bold** (more aggressive rework).
-5. **Select** — the champion is only replaced if a challenger *beats* it. Otherwise it stands.
+5. **Select** — the same two-judge panel votes again; the champion is only replaced if both judges prefer a challenger. Otherwise it stands.
 
 The loop ends when **all critics pass** (`converged`), when improvement **dries up** (`driedOut` — the champion wins twice running), or at the round cap (default 4).
 
@@ -38,8 +38,8 @@ Then start a new Claude Code session and run `/evolve <your question>`.
 
 `evolve` reads its own config file at `~/.claude/skills/evolve/critics.md` (shipped with the skill). If present, it customizes two things:
 
-- **Reader profile** — who the answer is written for. The reader-fit critic becomes this person and critiques in first person; the revisers write for them.
-- **Models** — which model each role uses (`brain`, `pick` tournament judge, `judge` default for critics, with per-critic `understand`/`useful`/`correct` overrides). Valid values: `haiku`, `sonnet`, `opus`, `fable`, `inherit`.
+- **Reader profile** — who the answer is written for. The reader-fit critic and the `reader` tournament judge become this person and work in first person; the revisers write for them.
+- **Models** — which model each role uses (`brain`, `pick` default for the tournament judges with per-judge `pick-reader`/`pick-correct` overrides, `judge` default for critics with per-critic `understand`/`useful`/`correct` overrides). Valid values: `haiku`, `sonnet`, `opus`, `fable`, `inherit`.
 
 If the file doesn't exist, sensible defaults are used and every agent runs on the session model.
 

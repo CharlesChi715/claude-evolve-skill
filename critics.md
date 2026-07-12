@@ -6,8 +6,8 @@ It customizes WHO the answer is judged for and WHICH model each agent uses.
 ## Reader profile
 
 Who the answer is for and how they like answers. The `understand` critic
-becomes this reader and critiques in first person; the generators and
-revisers write for them, and the tournament judge picks as them.
+and the `reader` tournament judge both become this reader and work in
+first person; the generators and revisers write for them.
 Add lines over time as you notice what does or doesn't work for you — this is
 your critics' memory.
 
@@ -29,10 +29,15 @@ Roles, one per line. Valid values: haiku, sonnet, opus, fable, inherit
 - `judge` — default model for all three critics. Smaller saves tokens.
 - `understand` / `useful` / `correct` — optional per-critic overrides that
   beat the `judge` default.
-- `pick` — the tournament judge that compares whole candidate answers.
-  Comparing solutions is harder than flagging issues; keep it strong.
+- `pick` — default model for the two tournament judges that vote on whole
+  candidate answers: `reader` impersonates the reader profile and judges
+  understandability + usefulness together; `correct` verifies claims
+  against official docs (web search) instead of memory. Both must agree to
+  dethrone the champion; a split vote keeps the incumbent.
+- `pick-reader` / `pick-correct` — optional per-judge overrides that beat
+  the `pick` default.
 
 brain: inherit
 judge: haiku
 correct: inherit
-pick: inherit
+pick: haiku
